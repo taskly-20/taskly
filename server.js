@@ -63,9 +63,12 @@ function normalizeKenyanPhone(phone) {
 }
 
 const paymentAmount = 20;
-const darajaBaseUrl = process.env.DARAJA_ENVIRONMENT === "production"
+const darajaEnvironment = process.env.DARAJA_ENVIRONMENT === "production" ? "production" : "sandbox";
+const darajaBaseUrl = darajaEnvironment === "production"
   ? "https://api.safaricom.co.ke"
   : "https://sandbox.safaricom.co.ke";
+const darajaShortcode = process.env.DARAJA_SHORTCODE?.trim();
+const darajaPasskey = process.env.DARAJA_PASSKEY?.trim();
 
 async function getDarajaAccessToken() {
   if (!process.env.DARAJA_CONSUMER_KEY || !process.env.DARAJA_CONSUMER_SECRET) {
@@ -374,7 +377,7 @@ app.post("/api/payment/stk-push", async (req, res) => {
   if (hasPaidAccess(req.user.id)) return res.json({ paid: true });
   const phoneNumber = normalizeKenyanPhone(typeof req.body.phoneNumber === "string" ? req.body.phoneNumber : req.user.phone_number);
   if (!phoneNumber) return res.status(400).json({ error: "Enter a valid Kenyan M-Pesa number." });
-  if (!process.env.DARAJA_SHORTCODE || !process.env.DARAJA_PASSKEY || !process.env.DARAJA_CALLBACK_URL) {
+  if (!darajaShortcode || !darajaPasskey || !process.env.DARAJA_CALLBACK_URL?.trim()) {
     return res.status(503).json({ error: "M-Pesa payments are not configured yet." });
   }
   try {
@@ -388,8 +391,8 @@ app.post("/api/payment/stk-push", async (req, res) => {
       String(now.getUTCMinutes()).padStart(2, "0"),
       String(now.getUTCSeconds()).padStart(2, "0")
     ].join("");
-    const password = Buffer.from(`${process.env.DARAJA_SHORTCODE}${process.env.DARAJA_PASSKEY}${timestamp}`).toString("base64");
-    const callbackUrl = new URL(process.env.DARAJA_CALLBACK_URL);
+    const password = Buffer.from(`${darajaShortcode}${darajaPasskey}${timestamp}`).toString("base64");
+    const callbackUrl = new URL(process.env.DARAJA_CALLBACK_URL.trim());
     if (callbackUrl.protocol !== "https:") {
       throw new Error("DARAJA_CALLBACK_URL must be a public HTTPS URL.");
     }
@@ -400,15 +403,15 @@ app.post("/api/payment/stk-push", async (req, res) => {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        BusinessShortCode: process.env.DARAJA_SHORTCODE,
+        BusinessShortCode: darajaShortcode,
         Password: password,
         Timestamp: timestamp,
         TransactionType: "CustomerPayBillOnline",
         Amount: paymentAmount,
         PartyA: phoneNumber.slice(1),
-        PartyB: process.env.DARAJA_SHORTCODE,
+        PartyB: darajaShortcode,
         PhoneNumber: phoneNumber.slice(1),
-        CallBackURL: process.env.DARAJA_CALLBACK_URL,
+        CallBackURL: callbackUrl.toString(),
         AccountReference: "Taskly",
         TransactionDesc: "Taskly access"
       })
