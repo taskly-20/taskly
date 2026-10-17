@@ -795,6 +795,11 @@ function PaymentGate({ user }) {
     return () => window.clearInterval(interval);
   }, [payment]);
 
+  useEffect(() => {
+    if (!payment?.paid) return;
+    window.location.replace("/");
+  }, [payment?.paid]);
+
   async function startPayment(event) {
     event.preventDefault();
     setBusy(true);
