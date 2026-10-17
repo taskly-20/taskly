@@ -883,8 +883,10 @@ function WorkspaceApp({ user, assessment }) {
   const [taskGenerationStatus, setTaskGenerationStatus] = useState(null);
   const [taskGenerationStatusError, setTaskGenerationStatusError] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const initialTaskId = document.getElementById("root")?.dataset.taskId || "";
-  const initialPage = document.getElementById("root")?.dataset.page || "tasks";
+  const rootElement = document.getElementById("root");
+  const currentPath = window.location.pathname;
+  const initialTaskId = rootElement?.dataset.taskId || currentPath.match(/^\/tasks\/([^/]+)$/)?.[1] || "";
+  const initialPage = rootElement?.dataset.page || ({ "/profile": "profile", "/withdraw": "withdraw", "/support": "support" }[currentPath] || "tasks");
   const routeTask = initialTaskId ? tasks.find((task) => task.id === initialTaskId) : null;
   const today = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" }).format(new Date());
   const userInitials = user.displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
