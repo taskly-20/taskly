@@ -687,7 +687,11 @@ app.get("/api/tasks/:id/document", (req, res) => {
   return res.send(submission.document_blob);
 });
 
-app.listen(port, () => {
-  console.log(`Taskly is running at http://localhost:${port}`);
-  scheduleTaskGeneration();
-});
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Taskly is running at http://localhost:${port}`);
+    scheduleTaskGeneration();
+  });
+}
+
+module.exports = app;
