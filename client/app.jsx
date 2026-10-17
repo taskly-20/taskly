@@ -820,6 +820,26 @@ function PaymentGate({ user }) {
     }
   }
 
+  async function verifyPayment() {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/payment/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: phone })
+      });
+      const result = await response.json();
+      setPayment(result);
+      if (!response.ok && response.status !== 202) throw new Error(result.error || "Could not verify the payment.");
+      if (!result.paid) setError(result.message || "No completed payment was found yet.");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (checking) return <div className="loading-screen">Checking your payment access…</div>;
   if (payment?.paid) return <AssessmentGate user={user} />;
 
@@ -829,7 +849,7 @@ function PaymentGate({ user }) {
       <header className="access-topbar"><a className="brand access-brand" href="/"><span className="brand-icon"><Icon name="spark" size={21} /></span>taskly<span className="brand-period">.</span></a><span className="access-demo-chip"><span /> SECURE PAYMENT</span></header>
       <div className="access-layout">
         <section className="access-story"><div className="access-kicker"><span className="access-kicker-line" /> UNLOCK YOUR WORKSPACE</div><h1>Ready to<br /><span>get started?</span></h1><p>Make a one-time KSh 20 M-Pesa payment to unlock your Taskly research workspace.</p><div className="assessment-points"><span><Icon name="check" size={16} /> One-time payment</span><span><Icon name="check" size={16} /> Secure Daraja STK Push</span><span><Icon name="check" size={16} /> No M-Pesa PIN shared</span></div></section>
-        <section className="access-panel" aria-labelledby="payment-title"><div className="access-panel-top"><span className="access-step-label">ACCOUNT ACTIVATION</span><span className="access-secure-mark"><Icon name="check" size={14} /> M-Pesa protected</span></div><div className="access-heading"><div className="access-welcome">ONE-TIME ACCESS FEE</div><h2 id="payment-title">Pay KSh 20 to continue</h2><p>We&apos;ll send a payment prompt to your Kenyan M-Pesa number.</p></div><form className="access-form" onSubmit={startPayment}><label htmlFor="payment-phone">M-Pesa phone number</label><input className="access-input" id="payment-phone" type="tel" autoComplete="tel" value={phone.replace(/^\+254/, "")} onChange={(event) => setPhone(event.target.value)} placeholder="712 345 678" />{error && <div className="access-error" role="alert">{error}</div>}{payment?.payment?.status === "pending" && <div className="notice" role="status">{payment.payment.resultDescription || "Check your phone and enter your M-Pesa PIN. This page will update automatically."}</div>}{payment?.payment?.status === "failed" && <div className="notice" role="alert">The payment was not completed. Please try again.</div>}<button type="submit" className="access-primary" disabled={busy || payment?.payment?.status === "pending"}>{busy ? "Sending prompt…" : payment?.payment?.status === "pending" ? "Waiting for payment…" : "Pay KSh 20"} <Icon name="arrow" size={17} /></button></form><p className="access-terms">Your account is already created. Payment status is verified by the server before research tasks are available.</p></section>
+        <section className="access-panel" aria-labelledby="payment-title"><div className="access-panel-top"><span className="access-step-label">ACCOUNT ACTIVATION</span><span className="access-secure-mark"><Icon name="check" size={14} /> M-Pesa protected</span></div><div className="access-heading"><div className="access-welcome">ONE-TIME ACCESS FEE</div><h2 id="payment-title">Pay KSh 20 to continue</h2><p>We&apos;ll send a payment prompt to your Kenyan M-Pesa number.</p></div><form className="access-form" onSubmit={startPayment}><label htmlFor="payment-phone">M-Pesa phone number</label><input className="access-input" id="payment-phone" type="tel" autoComplete="tel" value={phone.replace(/^\+254/, "")} onChange={(event) => setPhone(event.target.value)} placeholder="712 345 678" />{error && <div className="access-error" role="alert">{error}</div>}{payment?.payment?.status === "pending" && <div className="notice" role="status">{payment.payment.resultDescription || "Check your phone and enter your M-Pesa PIN. This page will update automatically."}</div>}{payment?.payment?.status === "failed" && <div className="notice" role="alert">The payment was not completed. Please try again.</div>}<button type="submit" className="access-primary" disabled={busy || payment?.payment?.status === "pending"}>{busy ? "Sending prompt…" : payment?.payment?.status === "pending" ? "Waiting for payment…" : "Pay KSh 20"} <Icon name="arrow" size={17} /></button>{payment?.payment?.status === "pending" && <button className="payment-verify-button" type="button" disabled={busy} onClick={verifyPayment}>{busy ? "Checking payment…" : "I've paid — check again"}</button>}</form><p className="access-terms">Your account is already created. Payment status is verified by the server before research tasks are available.</p></section>
       </div>
     </main>
   );
