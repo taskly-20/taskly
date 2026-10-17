@@ -379,8 +379,23 @@ app.post("/api/payment/stk-push", async (req, res) => {
   }
   try {
     const accessToken = await getDarajaAccessToken();
-    const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    const now = new Date();
+    const timestamp = [
+      now.getUTCFullYear(),
+      String(now.getUTCMonth() + 1).padStart(2, "0"),
+      String(now.getUTCDate()).padStart(2, "0"),
+      String(now.getUTCHours()).padStart(2, "0"),
+      String(now.getUTCMinutes()).padStart(2, "0"),
+      String(now.getUTCSeconds()).padStart(2, "0")
+    ].join("");
     const password = Buffer.from(`${process.env.DARAJA_SHORTCODE}${process.env.DARAJA_PASSKEY}${timestamp}`).toString("base64");
+    const callbackUrl = new URL(process.env.DARAJA_CALLBACK_URL);
+    if (callbackUrl.protocol !== "https:") {
+      throw new Error("DARAJA_CALLBACK_URL must be a public HTTPS URL.");
+    }
+    if (callbackUrl.pathname === "/" || callbackUrl.pathname === "") {
+      callbackUrl.pathname = "/api/payment/callback";
+    }
     const response = await fetch(`${darajaBaseUrl}/mpesa/stkpush/v1/processrequest`, {
       method: "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -399,7 +414,11 @@ app.post("/api/payment/stk-push", async (req, res) => {
       })
     });
     const result = await response.json();
-    if (!response.ok || !result.CheckoutRequestID) return res.status(502).json({ error: "Daraja could not start the M-Pesa prompt. Check the number and try again." });
+    if (!response.ok || !result.CheckoutRequestID) {
+      console.error("Daraja STK Push rejected:", response.status, result);
+      const detail = result.errorMessage || result.ResponseDescription || result.error_description;
+      return res.status(502).json({ error: detail ? `M-Pesa rejected the request: ${detail}` : "Daraja could not start the M-Pesa prompt. Check the number and try again." });
+    }
     database.prepare(`INSERT INTO payment_transactions (user_id, checkout_request_id, merchant_request_id, phone_number, amount, status) VALUES (?, ?, ?, ?, ?, 'pending')`)
       .run(req.user.id, result.CheckoutRequestID, result.MerchantRequestID || null, phoneNumber, paymentAmount);
     return res.status(202).json({ message: "Check your phone and enter your M-Pesa PIN to pay KSh 20.", checkoutRequestId: result.CheckoutRequestID });
