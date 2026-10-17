@@ -62,6 +62,45 @@ function normalizeKenyanPhone(phone) {
   return /^[17]\d{8}$/.test(normalized) ? `+254${normalized}` : null;
 }
 
+const paymentAmount = 20;
+const darajaBaseUrl = process.env.DARAJA_ENVIRONMENT === "production"
+  ? "https://api.safaricom.co.ke"
+  : "https://sandbox.safaricom.co.ke";
+
+async function getDarajaAccessToken() {
+  if (!process.env.DARAJA_CONSUMER_KEY || !process.env.DARAJA_CONSUMER_SECRET) {
+    throw new Error("Daraja credentials are not configured.");
+  }
+  const credentials = Buffer.from(`${process.env.DARAJA_CONSUMER_KEY}:${process.env.DARAJA_CONSUMER_SECRET}`).toString("base64");
+  const response = await fetch(`${darajaBaseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
+    headers: { Authorization: `Basic ${credentials}` }
+  });
+  const result = await response.json();
+  if (!response.ok || !result.access_token) throw new Error("Could not authenticate with Daraja.");
+  return result.access_token;
+}
+
+function getPaymentStatus(userId) {
+  return database.prepare(`
+    SELECT status, amount, phone_number AS phoneNumber, result_description AS resultDescription
+    FROM payment_transactions WHERE user_id = ? ORDER BY id DESC LIMIT 1
+  `).get(userId) || null;
+}
+
+function hasPaidAccess(userId) {
+  return Boolean(database.prepare("SELECT 1 FROM payment_transactions WHERE user_id = ? AND status = 'completed'").get(userId));
+}
+
+function requirePaidAccess(req, res, next) {
+  if (!hasPaidAccess(req.user.id)) return res.status(402).json({ error: "Complete the KSh 20 M-Pesa payment before using Taskly." });
+  return next();
+}
+
+function requirePagePaidAccess(req, res, next) {
+  if (!hasPaidAccess(req.user.id)) return res.redirect("/");
+  return next();
+}
+
 function readCookie(req, name) {
   const prefix = `${name}=`;
   const cookie = req.headers.cookie?.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
@@ -326,7 +365,68 @@ app.post("/api/auth/logout", (req, res) => {
 });
 
 app.use("/api", requireApiAuthentication);
+
+app.get("/api/payment/status", (req, res) => {
+  return res.json({ paid: hasPaidAccess(req.user.id), payment: getPaymentStatus(req.user.id), amount: paymentAmount });
+});
+
+app.post("/api/payment/stk-push", async (req, res) => {
+  if (hasPaidAccess(req.user.id)) return res.json({ paid: true });
+  const phoneNumber = normalizeKenyanPhone(typeof req.body.phoneNumber === "string" ? req.body.phoneNumber : req.user.phone_number);
+  if (!phoneNumber) return res.status(400).json({ error: "Enter a valid Kenyan M-Pesa number." });
+  if (!process.env.DARAJA_SHORTCODE || !process.env.DARAJA_PASSKEY || !process.env.DARAJA_CALLBACK_URL) {
+    return res.status(503).json({ error: "M-Pesa payments are not configured yet." });
+  }
+  try {
+    const accessToken = await getDarajaAccessToken();
+    const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+    const password = Buffer.from(`${process.env.DARAJA_SHORTCODE}${process.env.DARAJA_PASSKEY}${timestamp}`).toString("base64");
+    const response = await fetch(`${darajaBaseUrl}/mpesa/stkpush/v1/processrequest`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        BusinessShortCode: process.env.DARAJA_SHORTCODE,
+        Password: password,
+        Timestamp: timestamp,
+        TransactionType: "CustomerPayBillOnline",
+        Amount: paymentAmount,
+        PartyA: phoneNumber.slice(1),
+        PartyB: process.env.DARAJA_SHORTCODE,
+        PhoneNumber: phoneNumber.slice(1),
+        CallBackURL: process.env.DARAJA_CALLBACK_URL,
+        AccountReference: "Taskly",
+        TransactionDesc: "Taskly access"
+      })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.CheckoutRequestID) return res.status(502).json({ error: "Daraja could not start the M-Pesa prompt. Check the number and try again." });
+    database.prepare(`INSERT INTO payment_transactions (user_id, checkout_request_id, merchant_request_id, phone_number, amount, status) VALUES (?, ?, ?, ?, ?, 'pending')`)
+      .run(req.user.id, result.CheckoutRequestID, result.MerchantRequestID || null, phoneNumber, paymentAmount);
+    return res.status(202).json({ message: "Check your phone and enter your M-Pesa PIN to pay KSh 20.", checkoutRequestId: result.CheckoutRequestID });
+  } catch (error) {
+    console.error("Daraja STK Push failed:", error.message);
+    return res.status(502).json({ error: "M-Pesa is temporarily unavailable. Please try again." });
+  }
+});
+
+app.post("/api/payment/callback", (req, res) => {
+  const callback = req.body?.Body?.stkCallback;
+  if (callback?.CheckoutRequestID) {
+    const transaction = database.prepare("SELECT id FROM payment_transactions WHERE checkout_request_id = ?").get(callback.CheckoutRequestID);
+    if (transaction) {
+      const completed = Number(callback.ResultCode) === 0;
+      const metadata = callback.CallbackMetadata?.Item || [];
+      const receipt = metadata.find((item) => item.Name === "MpesaReceiptNumber")?.Value;
+      database.prepare(`UPDATE payment_transactions SET status = ?, result_code = ?, result_description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`)
+        .run(completed ? "completed" : "failed", String(callback.ResultCode ?? ""), receipt ? `${callback.ResultDesc} (${receipt})` : callback.ResultDesc || "Payment failed", transaction.id);
+    }
+  }
+  return res.json({ ResultCode: 0, ResultDesc: "Accepted" });
+});
+
+app.use(["/api/typing-test", "/api/tasks"], requirePaidAccess);
 app.use(["/profile", "/withdraw", "/support", "/tasks"], requirePageAuthentication);
+app.use("/tasks", requirePagePaidAccess);
 app.use("/api/tasks", requireTypingAssessment);
 app.use("/tasks", requirePageTypingAssessment);
 

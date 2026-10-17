@@ -101,6 +101,21 @@ database.exec(`
     expires_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS payment_transactions (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    checkout_request_id TEXT UNIQUE,
+    merchant_request_id TEXT,
+    phone_number TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK (amount > 0),
+    status TEXT NOT NULL DEFAULT 'pending',
+    result_code TEXT,
+    result_description TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE INDEX IF NOT EXISTS payment_transactions_user_id_idx ON payment_transactions(user_id);
   CREATE INDEX IF NOT EXISTS user_typing_attempts_user_id_idx ON user_typing_attempts(user_id);
 
   CREATE TABLE IF NOT EXISTS generated_tasks (
