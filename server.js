@@ -382,15 +382,20 @@ app.post("/api/payment/stk-push", async (req, res) => {
   }
   try {
     const accessToken = await getDarajaAccessToken();
-    const now = new Date();
-    const timestamp = [
-      now.getUTCFullYear(),
-      String(now.getUTCMonth() + 1).padStart(2, "0"),
-      String(now.getUTCDate()).padStart(2, "0"),
-      String(now.getUTCHours()).padStart(2, "0"),
-      String(now.getUTCMinutes()).padStart(2, "0"),
-      String(now.getUTCSeconds()).padStart(2, "0")
-    ].join("");
+    const timestampParts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Nairobi",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(new Date()).reduce((parts, part) => {
+      if (part.type !== "literal") parts[part.type] = part.value;
+      return parts;
+    }, {});
+    const timestamp = `${timestampParts.year}${timestampParts.month}${timestampParts.day}${timestampParts.hour}${timestampParts.minute}${timestampParts.second}`;
     const password = Buffer.from(`${darajaShortcode}${darajaPasskey}${timestamp}`).toString("base64");
     const callbackUrl = new URL(process.env.DARAJA_CALLBACK_URL.trim());
     if (callbackUrl.protocol !== "https:") {
