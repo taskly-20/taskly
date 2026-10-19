@@ -396,7 +396,7 @@ app.post("/api/payment/verify", (req, res) => {
   });
 });
 
-app.post("/api/payment/stk-push", async (req, res) =>
+app.post("/api/payment/stk-push", async (req, res) => {
   if (hasPaidAccess(req.user.id)) return res.json({ paid: true });
   const phoneNumber = normalizeKenyanPhone(typeof req.body.phoneNumber === "string" ? req.body.phoneNumber : req.user.phone_number);
   if (!phoneNumber) return res.status(400).json({ error: "Enter a valid Kenyan M-Pesa number." });
