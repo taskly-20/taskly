@@ -373,7 +373,30 @@ app.get("/api/payment/status", (req, res) => {
   return res.json({ paid: hasPaidAccess(req.user.id), payment: getPaymentStatus(req.user.id), amount: paymentAmount });
 });
 
-app.post("/api/payment/stk-push", async (req, res) => {
+app.post("/api/payment/verify", (req, res) => {
+  const phoneNumber = normalizeKenyanPhone(typeof req.body.phoneNumber === "string" ? req.body.phoneNumber : req.user.phone_number);
+  if (!phoneNumber) return res.status(400).json({ error: "Enter a valid Kenyan M-Pesa number." });
+
+  const payment = database.prepare(`
+    SELECT status, amount, phone_number AS phoneNumber, result_description AS resultDescription
+    FROM payment_transactions
+    WHERE user_id = ? AND phone_number = ?
+    ORDER BY id DESC LIMIT 1
+  `).get(req.user.id, phoneNumber);
+
+  if (payment?.status === "completed") {
+    return res.json({ paid: true, payment });
+  }
+  return res.status(202).json({
+    paid: false,
+    payment: payment || null,
+    message: payment?.status === "pending"
+      ? "Your payment is still being confirmed. Try again in a few seconds."
+      : "No completed KSh 20 payment was found for that number."
+  });
+});
+
+app.post("/api/payment/stk-push", async (req, res) =>
   if (hasPaidAccess(req.user.id)) return res.json({ paid: true });
   const phoneNumber = normalizeKenyanPhone(typeof req.body.phoneNumber === "string" ? req.body.phoneNumber : req.user.phone_number);
   if (!phoneNumber) return res.status(400).json({ error: "Enter a valid Kenyan M-Pesa number." });
